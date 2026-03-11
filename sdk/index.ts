@@ -103,8 +103,8 @@ export class AgentEscrow {
   private contract: Contract;
   private signer: Signer;
 
-  /** Polygon mainnet deployment (V2Fixed) */
-  static readonly POLYGON_ADDRESS = "0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c";
+  /** Polygon mainnet deployment (V4 — latest) */
+  static readonly POLYGON_ADDRESS = "0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A";
 
   constructor(signer: Signer, contractAddress: string) {
     this.signer = signer;

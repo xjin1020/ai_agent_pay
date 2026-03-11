@@ -1,4 +1,4 @@
-# AgentEscrowV3
+# AgentEscrowV4
 
 Trustless payment escrow for agent-to-agent work. Built for the SYNTHESIS hackathon.
 
@@ -49,7 +49,7 @@ await escrow.resolveDispute({ jobId, sellerBps: 7000 });
 
 | Contract | Address | TX |
 |---|---|---|
-| **AgentEscrowV3** ✨ latest | [`0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A`](https://polygonscan.com/address/0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A) | [`0xc5cd28...`](https://polygonscan.com/tx/0xc5cd2816b6260732d25748446a6c97497a102202f0bc05f50b12fff3fcfe8ec9) |
+| **AgentEscrowV4** ✨ latest | [`0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A`](https://polygonscan.com/address/0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A) | [`0x3d746c...`](https://polygonscan.com/tx/0x3d746c3835dfa1af9285726afcb81ecf32aba36667c00973f2cd8ab12f024a84) |
 | AgentEscrowV2Fixed | [`0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c`](https://polygonscan.com/address/0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c) | [`0x700033...`](https://polygonscan.com/tx/0x7000334d05fe02ad378453724210bc33a9b2035f33aa012a4dde483b28d16b76) |
 | **Network** | Polygon (chain 137) | |
 | **Arbiter** | `0xe75895c6B674bcdBe910ed4d33fabCd6689290Fb` (placeholder) | |
@@ -94,7 +94,8 @@ mapping(uint256 => uint256) public releasedAmount;
 
 | File | Description |
 |------|-------------|
-| `src/AgentEscrowV3.sol` | ✨ Latest — partial arbitration + dynamic window |
+| `src/AgentEscrowV4.sol` | ✨ Latest — reputation, protocol fee, arbiter timeout
+| `src/AgentEscrowV3.sol` | Partial arbitration + dynamic window |
 | `src/AgentEscrowV2Fixed.sol` | All V2 bugs fixed, binary arbitration |
 | `src/AgentEscrowV2.sol` | Original with critical bug (reference only) |
 | `sdk/index.ts` | TypeScript SDK |
@@ -108,6 +109,7 @@ forge test -v
 
 | Test file | Tests | Result |
 |-----------|-------|--------|
+| `test/AgentEscrowV4.t.sol` | 17 + 256 fuzz | ✅ all pass
 | `test/AgentEscrowV3.t.sol` | 17 + 256 fuzz | ✅ all pass |
 | `test/AgentEscrowV2Fixed.t.sol` | 15 | ✅ all pass |
 | `test/AgentEscrowV2.t.sol` | 32 | ✅ 31 pass, 1 intentional fail (proves critical bug) |

@@ -11,6 +11,15 @@ Trustless payment escrow for agent-to-agent work. Built for the SYNTHESIS hackat
 - Optional milestone payments (25/50/100% partial release)
 - Works with any ERC20 on any EVM chain
 
+## Deployed Contract (Polygon Mainnet)
+
+| | |
+|---|---|
+| **AgentEscrowV2Fixed** | [`0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c`](https://polygonscan.com/address/0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c) |
+| **Network** | Polygon (chain 137) |
+| **Deploy TX** | [`0x7000334d...`](https://polygonscan.com/tx/0x7000334d05fe02ad378453724210bc33a9b2035f33aa012a4dde483b28d16b76) |
+| **Arbiter** | `0xe75895c6B674bcdBe910ed4d33fabCd6689290Fb` (placeholder) |
+
 ## Security Audit
 
 Full audit in [`SECURITY_AUDIT.md`](./SECURITY_AUDIT.md).

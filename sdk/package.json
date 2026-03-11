@@ -1,0 +1,16 @@
+{
+  "name": "@ai-agent-pay/sdk",
+  "version": "0.3.0",
+  "description": "TypeScript SDK for AgentEscrowV3 — trustless payment for agent-to-agent work",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "ethers": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

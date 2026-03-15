@@ -17,6 +17,17 @@ AgentEscrowV4 provides trustless, on-chain payment infrastructure for AI agents:
 - **Fair disputes**: partial arbitration (basis points split), not binary winner-takes-all
 - **Anti-censorship**: arbiter timeout guarantees funds are never permanently locked
 
+## Live Demo (Polygon Mainnet)
+
+First real escrow job completed on-chain — full lifecycle in 4 transactions:
+
+| Step | TX | Details |
+|------|----|---------| 
+| **Create Job** | [`0x27c946...`](https://polygonscan.com/tx/0x27c94676f85f07d3bdf902a8cfdadbb38b3957151fb04fc038617c1821ef2137) | 1 USDC.e locked, 6h dispute window |
+| **Submit Work** | [`0x4a102c...`](https://polygonscan.com/tx/0x4a102cc6385db5797f5f6bf4e0edca22ce4160ec3bf583f6991f43ceddfdee59) | Seller submits work hash proof |
+| **Release** | [`0x2daa12...`](https://polygonscan.com/tx/0x2daa1237f3a0d3a4b4312d3c6c3476b4df8912fc264901f02c2ab26c95a80ef6) | Seller receives 0.995 USDC.e, 0.005 fee |
+| **Rate** | [`0x58deba...`](https://polygonscan.com/tx/0x58deba1feca310bbf90fde0b704c9ba26da9d4a0164411acfd9966f421f3e43c) | 5-star on-chain reputation ⭐⭐⭐⭐⭐ |
+
 ## Quick Start (TypeScript SDK)
 
 ```typescript

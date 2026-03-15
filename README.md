@@ -96,6 +96,24 @@ Split large jobs into chunks. Accounting is correct (no double-pay bug from V2).
 | **Protocol Fee** | 0.5% (50 bps) |
 | **Arbiter Timeout** | 7 days |
 
+## Frontend Demo
+
+Interactive web UI for interacting with the deployed contract. Connect your wallet and try it.
+
+```bash
+cd frontend && npm install && npm run dev
+# → http://localhost:5173
+```
+
+**Features:**
+- 🔗 **Wallet Connect** — MetaMask, auto-switches to Polygon network
+- 📊 **Live Dashboard** — Job count, protocol fee, arbiter timeout from on-chain data
+- ➕ **Create Job** — Token dropdown (USDC/USDCe/USDT/WETH), amount, deadline picker, dispute window slider (6h–7d), optional milestones
+- 🔍 **Job Viewer** — Lookup by ID, full details (status, buyer, seller, amounts, deadline, work hash). Context-aware action buttons: Submit Work, Release, Dispute, Refund, Auto Release, Rate (1–5 ⭐)
+- 👤 **Reputation Lookup** — Star visualization, avg rating, completed/disputed counts, success rate
+
+**Tech stack:** Vite + React + TypeScript + Tailwind CSS v4 + ethers.js v6
+
 ## Contracts
 
 | File | Description |
@@ -105,6 +123,7 @@ Split large jobs into chunks. Accounting is correct (no double-pay bug from V2).
 | `src/AgentEscrowV2Fixed.sol` | All V2 bugs fixed, binary arbitration |
 | `src/AgentEscrowV2.sol` | Original with critical bug (reference only) |
 | `sdk/` | TypeScript SDK (v0.4.0) |
+| `frontend/` | React demo UI |
 
 ## Tests
 

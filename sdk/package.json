@@ -1,12 +1,23 @@
 {
   "name": "@ai-agent-pay/sdk",
-  "version": "0.3.0",
-  "description": "TypeScript SDK for AgentEscrowV3 — trustless payment for agent-to-agent work",
+  "version": "0.4.0",
+  "description": "TypeScript SDK for AgentEscrowV4 — trustless payment with reputation for agent-to-agent work",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc"
   },
+  "keywords": [
+    "escrow",
+    "agent",
+    "ai",
+    "ethereum",
+    "polygon",
+    "erc20",
+    "reputation",
+    "trustless"
+  ],
+  "license": "MIT",
   "dependencies": {
     "ethers": "^6.0.0"
   },

@@ -1,6 +1,6 @@
 # @ai-agent-pay/sdk
 
-TypeScript SDK for AgentEscrowV3 — trustless payment escrow for agent-to-agent work.
+TypeScript SDK for **AgentEscrowV4** — trustless payment escrow with on-chain reputation for agent-to-agent work.
 
 ## Install
 
@@ -18,75 +18,73 @@ const provider = new ethers.JsonRpcProvider("https://polygon-rpc.com");
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);
 
 // Connect to deployed contract on Polygon mainnet
-const escrow = new AgentEscrow(signer, AgentEscrow.POLYGON_ADDRESS);
+const escrow = new AgentEscrow(signer); // uses POLYGON_ADDRESS by default
+```
 
-// ── Buyer: create job ──────────────────────────────────────────────────────
+## Full Lifecycle
 
+### 1. Buyer creates a job
+
+```typescript
 const jobId = await escrow.createJob({
   seller: "0xSellerAgentAddress",
-  token:  "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", // USDC on Polygon
-  amount: 10_000_000n, // 10 USDC (6 decimals)
-  deadline: Math.floor(Date.now() / 1000) + 7 * 24 * 3600, // 7 days
-  disputeWindowSeconds: 6 * 3600, // 6h window for fast jobs
-  // optional: split into milestones
-  // milestones: [3_000_000n, 7_000_000n], // 3 + 7 USDC
+  token:  AgentEscrow.TOKENS.USDC,         // or any ERC20
+  amount: 10_000_000n,                      // 10 USDC (6 decimals)
+  deadline: Math.floor(Date.now() / 1000) + 7 * 86400, // 7 days
+  disputeWindowSeconds: 6 * 3600,           // 6h for fast jobs (default: 48h)
+  // milestones: [3_000_000n, 7_000_000n],  // optional: 3 + 7 USDC
 });
+```
 
-console.log("Job created:", jobId);
+### 2. Seller submits work
 
-// ── Seller: submit work ────────────────────────────────────────────────────
-
-// Hash your deliverable (IPFS CID, file hash, etc.)
+```typescript
 const workHash = AgentEscrow.hashDeliverable("ipfs://Qm...your-result");
 await escrow.submitWork(jobId, workHash);
+```
 
-// ── Buyer: release or dispute ──────────────────────────────────────────────
+### 3. Buyer releases (or disputes)
 
-const job = await escrow.getJob(jobId);
-if (job.status === JobStatus.WorkSubmitted) {
-  // Happy path
-  await escrow.release(jobId);
+```typescript
+// Happy path
+await escrow.release(jobId);
 
-  // Or dispute within the window
-  // await escrow.dispute(jobId);
-}
+// Or dispute within the window
+await escrow.dispute(jobId);
+```
 
-// ── Auto-release (anyone can call after window closes) ─────────────────────
+### 4. Auto-release (anyone can trigger)
 
+```typescript
 if (await escrow.canAutoRelease(jobId)) {
   await escrow.autoRelease(jobId);
 }
-
-// ── Arbiter: partial resolution ────────────────────────────────────────────
-
-// 70% to seller, 30% back to buyer
-await escrow.resolveDispute({ jobId, sellerBps: 7000 });
-// Full refund: sellerBps = 0
-// Full payout: sellerBps = 10000
-
-// ── Milestone release ──────────────────────────────────────────────────────
-
-await escrow.releaseMilestone(jobId); // releases next slice
-const remaining = await escrow.remainingAmount(jobId);
 ```
 
-## Contract
+### 5. Rate the seller (V4)
 
-| | |
-|---|---|
-| **AgentEscrowV3 (Polygon mainnet)** | `0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c` |
-| **Source** | [github.com/xjin1020/ai_agent_pay](https://github.com/xjin1020/ai_agent_pay) |
+```typescript
+await escrow.rateJob(jobId, 5); // 1-5 stars, once per job
+```
 
-## Dispute Window
+### 6. Check reputation (V4)
 
-Set `disputeWindowSeconds` at job creation (default: 48h):
-- Min: 6h — fast jobs between known agents
-- Max: 7 days — large contracts with unknowns
-- Default: 48h — balanced
+```typescript
+const { avgX100, count } = await escrow.getSellerRating(sellerAddress);
+console.log(`Rating: ${Number(avgX100) / 100} stars (${count} reviews)`);
 
-## Partial Arbitration
+const stats = await escrow.getSellerStats(sellerAddress);
+console.log(`Completed: ${stats.completedJobs}, Disputed: ${stats.disputedJobs}`);
+```
 
-`resolveDispute({ jobId, sellerBps })` splits remaining funds:
+## Dispute Resolution
+
+### Arbiter resolves with partial split
+
+```typescript
+// 70% to seller, 30% refund to buyer (protocol fee deducted first)
+await escrow.resolveDispute({ jobId, sellerBps: 7000 });
+```
 
 | sellerBps | Outcome |
 |-----------|---------|
@@ -94,3 +92,56 @@ Set `disputeWindowSeconds` at job creation (default: 48h):
 | `7000` | 70% seller / 30% buyer |
 | `5000` | 50/50 split |
 | `0` | Full refund to buyer |
+
+### Arbiter timeout (V4)
+
+If the arbiter doesn't act within the timeout (default 7 days), anyone can force-release to the seller. Anti-censorship guarantee.
+
+```typescript
+if (await escrow.canArbiterTimeoutRelease(jobId)) {
+  await escrow.arbiterTimeoutRelease(jobId);
+}
+```
+
+## Milestones
+
+```typescript
+const jobId = await escrow.createJob({
+  seller: "0x...",
+  token:  AgentEscrow.TOKENS.USDC,
+  amount: 100_000_000n,                    // 100 USDC total
+  deadline: Math.floor(Date.now() / 1000) + 30 * 86400,
+  milestones: [25_000_000n, 25_000_000n, 50_000_000n], // 25 + 25 + 50
+});
+
+// Release milestones one by one
+await escrow.releaseMilestone(jobId); // releases 25 USDC
+await escrow.releaseMilestone(jobId); // releases 25 USDC
+// Final release after work submitted
+await escrow.release(jobId);          // releases remaining 50 USDC
+```
+
+## Protocol Config (V4)
+
+```typescript
+const feeBps = await escrow.getProtocolFeeBps();   // 50 = 0.5%
+const collector = await escrow.getFeeCollector();
+const timeout = await escrow.getArbiterTimeout();   // seconds
+const arbiter = await escrow.getArbiter();
+```
+
+## Contract
+
+| | |
+|---|---|
+| **AgentEscrowV4 (Polygon mainnet)** | [`0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A`](https://polygonscan.com/address/0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A) |
+| **Source** | [github.com/xjin1020/ai_agent_pay](https://github.com/xjin1020/ai_agent_pay) |
+
+## Token Addresses (Polygon)
+
+```typescript
+AgentEscrow.TOKENS.USDC   // 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359
+AgentEscrow.TOKENS.USDCe  // 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
+AgentEscrow.TOKENS.USDT   // 0xc2132D05D31c914a87C6611C10748AEb04B58e8F
+AgentEscrow.TOKENS.WETH   // 0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619
+```

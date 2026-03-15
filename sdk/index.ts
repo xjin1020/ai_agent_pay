@@ -1,13 +1,19 @@
 /**
- * AgentEscrowV3 SDK
+ * AgentEscrowV4 SDK
  * Trustless payment escrow for agent-to-agent work.
- * Deployed on Polygon: 0x9C8eefb386C395089D7906C67b48A3fd5ca14B9c (V2Fixed)
+ * Deployed on Polygon: 0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A (V4)
+ *
+ * V4 additions over V3:
+ *   - On-chain reputation: buyer rates seller (1-5 stars) after completion
+ *   - Protocol fee: configurable bps (default 0.5%), paid to feeCollector
+ *   - Arbiter timeout: force-release to seller if arbiter goes MIA
  *
  * Usage:
- *   const sdk = new AgentEscrow(signer, contractAddress);
+ *   const sdk = new AgentEscrow(signer, AgentEscrow.POLYGON_ADDRESS);
  *   const jobId = await sdk.createJob({ seller, token, amount, deadline });
  *   await sdk.submitWork(jobId, sha256OfDeliverable);
  *   await sdk.release(jobId);
+ *   await sdk.rateJob(jobId, 5); // 1-5 stars
  */
 
 import { Contract, Signer, Provider, BigNumberish, ethers } from "ethers";
@@ -23,22 +29,41 @@ const ABI = [
   "function dispute(uint256 jobId)",
   "function refund(uint256 jobId)",
   "function releaseMilestone(uint256 jobId)",
+  "function rateJob(uint256 jobId, uint8 rating)",
   // anyone
   "function autoRelease(uint256 jobId)",
+  "function arbiterTimeoutRelease(uint256 jobId)",
   // arbiter
   "function resolveDispute(uint256 jobId, uint256 sellerBps)",
+  // admin (arbiter only)
+  "function setProtocolFee(uint256 bps)",
+  "function setFeeCollector(address newCollector)",
+  "function setArbiterTimeout(uint256 seconds_)",
   // view
-  "function getJob(uint256 jobId) view returns (tuple(address buyer, address seller, address token, uint256 amount, uint256 deadline, uint256 disputeWindow, bytes32 workHash, uint64 submittedAt, uint8 status))",
+  "function getJob(uint256 jobId) view returns (tuple(address buyer, address seller, address token, uint256 amount, uint256 deadline, uint256 disputeWindow, bytes32 workHash, uint64 submittedAt, uint64 disputedAt, uint8 status))",
   "function getMilestones(uint256 jobId) view returns (uint256[])",
   "function remainingAmount(uint256 jobId) view returns (uint256)",
   "function jobCount() view returns (uint256)",
+  "function sellerRating(address seller) view returns (uint256 avgX100, uint256 count)",
+  "function sellerStats(address seller) view returns (uint256 completedJobs, uint256 disputedJobs, uint256 avgRatingX100, uint256 ratingCount)",
+  "function protocolFeeBps() view returns (uint256)",
+  "function feeCollector() view returns (address)",
+  "function arbiterTimeoutSeconds() view returns (uint256)",
+  "function jobRated(uint256 jobId) view returns (bool)",
+  "function ARBITER() view returns (address)",
   // events
   "event JobCreated(uint256 indexed jobId, address buyer, address seller, address token, uint256 amount, uint256 deadline, uint256 disputeWindow)",
   "event WorkSubmitted(uint256 indexed jobId, bytes32 workHash)",
-  "event Released(uint256 indexed jobId, address seller, uint256 amount)",
-  "event Disputed(uint256 indexed jobId)",
-  "event DisputeResolved(uint256 indexed jobId, address seller, uint256 sellerAmount, address buyer, uint256 buyerAmount)",
+  "event Released(uint256 indexed jobId, address seller, uint256 sellerAmount, uint256 feeAmount)",
+  "event AutoReleased(uint256 indexed jobId)",
+  "event Disputed(uint256 indexed jobId, uint64 disputedAt)",
+  "event DisputeResolved(uint256 indexed jobId, address seller, uint256 sellerAmount, address buyer, uint256 buyerAmount, uint256 feeAmount)",
+  "event ArbiterTimeoutRelease(uint256 indexed jobId)",
   "event Refunded(uint256 indexed jobId, address buyer, uint256 amount)",
+  "event MilestoneReleased(uint256 indexed jobId, uint256 milestoneIdx, uint256 amount)",
+  "event SellerRated(uint256 indexed jobId, address indexed seller, uint8 rating)",
+  "event ProtocolFeeUpdated(uint256 newBps)",
+  "event FeeCollectorUpdated(address newCollector)",
 ];
 
 const ERC20_ABI = [
@@ -68,7 +93,15 @@ export interface Job {
   disputeWindow: bigint;
   workHash: string;
   submittedAt: bigint;
+  disputedAt: bigint;
   status: JobStatus;
+}
+
+export interface SellerReputation {
+  completedJobs: bigint;
+  disputedJobs: bigint;
+  avgRatingX100: bigint;
+  ratingCount: bigint;
 }
 
 export interface CreateJobParams {
@@ -106,12 +139,32 @@ export class AgentEscrow {
   /** Polygon mainnet deployment (V4 — latest) */
   static readonly POLYGON_ADDRESS = "0xf8a7e6b5Decfe1b6F57e3D16d8005BCa5Be88B6A";
 
-  constructor(signer: Signer, contractAddress: string) {
+  /** Common ERC20 token addresses on Polygon */
+  static readonly TOKENS = {
+    USDC:   "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
+    USDCe:  "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    USDT:   "0xc2132D05D31c914a87C6611C10748AEb04B58e8F",
+    WETH:   "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+    POL:    "0x0000000000000000000000000000000000001010",
+  } as const;
+
+  constructor(signer: Signer, contractAddress?: string) {
     this.signer = signer;
-    this.contract = new Contract(contractAddress, ABI, signer);
+    this.contract = new Contract(
+      contractAddress ?? AgentEscrow.POLYGON_ADDRESS,
+      ABI,
+      signer,
+    );
   }
 
-  // ── Create ─────────────────────────────────────────────────────────────────
+  /** Get the underlying ethers Contract for advanced usage */
+  getContract(): Contract {
+    return this.contract;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Create
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /**
    * Create a new escrow job.
@@ -139,11 +192,10 @@ export class AgentEscrow {
       amount,
       deadline,
       milestones,
-      disputeWindowSeconds
+      disputeWindowSeconds,
     );
     const receipt = await tx.wait();
 
-    // Parse JobCreated event to get jobId
     const iface = this.contract.interface;
     for (const log of receipt.logs) {
       try {
@@ -156,7 +208,9 @@ export class AgentEscrow {
     throw new Error("JobCreated event not found in receipt");
   }
 
-  // ── Seller ─────────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Seller
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /**
    * Seller submits work hash to open the dispute window.
@@ -175,7 +229,9 @@ export class AgentEscrow {
     return ethers.keccak256(ethers.toUtf8Bytes(content));
   }
 
-  // ── Buyer ──────────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Buyer
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** Buyer confirms work is good and releases payment to seller. */
   async release(jobId: BigNumberish): Promise<void> {
@@ -185,7 +241,7 @@ export class AgentEscrow {
 
   /**
    * Buyer disputes within the dispute window.
-   * Locks funds until arbiter resolves.
+   * Locks funds until arbiter resolves or arbiter timeout triggers.
    */
   async dispute(jobId: BigNumberish): Promise<void> {
     const tx = await this.contract.dispute(jobId);
@@ -204,7 +260,21 @@ export class AgentEscrow {
     await tx.wait();
   }
 
-  // ── Anyone ─────────────────────────────────────────────────────────────────
+  /**
+   * Buyer rates seller after job completion (1–5 stars).
+   * Can only be called once per job, only after Released or PartiallyResolved.
+   */
+  async rateJob(jobId: BigNumberish, rating: number): Promise<void> {
+    if (rating < 1 || rating > 5 || !Number.isInteger(rating)) {
+      throw new Error("Rating must be an integer between 1 and 5");
+    }
+    const tx = await this.contract.rateJob(jobId, rating);
+    await tx.wait();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Anyone
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /** Auto-releases payment after dispute window closes without dispute. */
   async autoRelease(jobId: BigNumberish): Promise<void> {
@@ -212,10 +282,22 @@ export class AgentEscrow {
     await tx.wait();
   }
 
-  // ── Arbiter ────────────────────────────────────────────────────────────────
+  /**
+   * Force-release funds to seller if arbiter hasn't resolved a dispute
+   * within arbiterTimeoutSeconds. Callable by anyone — anti-censorship.
+   */
+  async arbiterTimeoutRelease(jobId: BigNumberish): Promise<void> {
+    const tx = await this.contract.arbiterTimeoutRelease(jobId);
+    await tx.wait();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Arbiter
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /**
    * Arbiter resolves a disputed job with partial split.
+   * Protocol fee is deducted first, then remainder split by sellerBps.
    * @param sellerBps Basis points for seller (0–10000).
    *   - 10000 = 100% to seller
    *   - 5000  = 50/50 split
@@ -226,7 +308,9 @@ export class AgentEscrow {
     await tx.wait();
   }
 
-  // ── View ───────────────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // View — Jobs
+  // ═══════════════════════════════════════════════════════════════════════════
 
   async getJob(jobId: BigNumberish): Promise<Job> {
     const j = await this.contract.getJob(jobId);
@@ -239,6 +323,7 @@ export class AgentEscrow {
       disputeWindow: j.disputeWindow,
       workHash:      j.workHash,
       submittedAt:   j.submittedAt,
+      disputedAt:    j.disputedAt,
       status:        Number(j.status) as JobStatus,
     };
   }
@@ -258,6 +343,7 @@ export class AgentEscrow {
   /** Check if the dispute window is still open for a job. */
   async isDisputeWindowOpen(jobId: BigNumberish): Promise<boolean> {
     const job = await this.getJob(jobId);
+    if (job.status !== JobStatus.WorkSubmitted) return false;
     const now = BigInt(Math.floor(Date.now() / 1000));
     return now <= job.submittedAt + job.disputeWindow;
   }
@@ -270,11 +356,73 @@ export class AgentEscrow {
     return now > job.submittedAt + job.disputeWindow;
   }
 
-  // ── Internal ───────────────────────────────────────────────────────────────
+  /** Check if arbiter timeout release is available for a disputed job. */
+  async canArbiterTimeoutRelease(jobId: BigNumberish): Promise<boolean> {
+    const job = await this.getJob(jobId);
+    if (job.status !== JobStatus.Disputed) return false;
+    const timeout = await this.contract.arbiterTimeoutSeconds();
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    return now > BigInt(job.disputedAt) + BigInt(timeout);
+  }
+
+  /** Check if a job has already been rated. */
+  async isJobRated(jobId: BigNumberish): Promise<boolean> {
+    return await this.contract.jobRated(jobId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // View — Reputation
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Get seller's average rating.
+   * @returns { avgX100, count } — avgX100 is rating × 100 (e.g. 450 = 4.50 stars)
+   */
+  async getSellerRating(seller: string): Promise<{ avgX100: bigint; count: bigint }> {
+    const [avgX100, count] = await this.contract.sellerRating(seller);
+    return { avgX100, count };
+  }
+
+  /**
+   * Get full seller reputation stats.
+   */
+  async getSellerStats(seller: string): Promise<SellerReputation> {
+    const [completedJobs, disputedJobs, avgRatingX100, ratingCount] =
+      await this.contract.sellerStats(seller);
+    return { completedJobs, disputedJobs, avgRatingX100, ratingCount };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // View — Protocol Config
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Get the current protocol fee in basis points. */
+  async getProtocolFeeBps(): Promise<bigint> {
+    return await this.contract.protocolFeeBps();
+  }
+
+  /** Get the fee collector address. */
+  async getFeeCollector(): Promise<string> {
+    return await this.contract.feeCollector();
+  }
+
+  /** Get the arbiter timeout in seconds. */
+  async getArbiterTimeout(): Promise<bigint> {
+    return await this.contract.arbiterTimeoutSeconds();
+  }
+
+  /** Get the immutable arbiter address. */
+  async getArbiter(): Promise<string> {
+    return await this.contract.ARBITER();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Internal
+  // ═══════════════════════════════════════════════════════════════════════════
 
   private async _ensureApproval(
     tokenAddress: string,
-    amount: BigNumberish
+    amount: BigNumberish,
   ): Promise<void> {
     const token = new Contract(tokenAddress, ERC20_ABI, this.signer);
     const signerAddr = await this.signer.getAddress();

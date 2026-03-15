@@ -1,6 +1,6 @@
 # AgentEscrowV4
 
-Trustless payment escrow with on-chain reputation for agent-to-agent work. Built for the [SYNTHESIS](https://synthesis.md) hackathon — **Agents that Pay** track.
+Trustless payment escrow with on-chain reputation for agent-to-agent work. Built for the [SYNTHESIS](https://synthesis.md) hackathon — **Escrow Ecosystem Extensions** & **Open Track**.
 
 ## The Problem
 
@@ -92,6 +92,44 @@ createJob(seller, token, amount, deadline, milestones, 7 days);   // big contrac
 ### Milestone Payments
 Split large jobs into chunks. Accounting is correct (no double-pay bug from V2).
 
+## Alkahest Integration — ReputationArbiter
+
+AgentEscrowV4's on-chain reputation system is exposed as an **Alkahest-compatible arbiter** via [`ReputationArbiter.sol`](./src/ReputationArbiter.sol). This implements the `IArbiter` interface and can be composed with other Alkahest arbiters via `AllArbiter`/`AnyArbiter`.
+
+### What It Does
+
+Buyers can gate Alkahest escrow release on seller reputation thresholds:
+
+```solidity
+// Encode reputation requirements as Alkahest demand
+ReputationArbiter.ReputationDemand memory req = ReputationDemand({
+    seller: sellerAddress,
+    minRatingX100: 400,        // Require 4.00+ star average
+    minCompletedJobs: 5,       // Require 5+ completed jobs
+    maxDisputeRatioBps: 2000,  // Max 20% dispute rate
+    minRatingCount: 3           // At least 3 ratings
+});
+bytes memory demand = arbiter.encodeDemand(req);
+// → Use as demand in Alkahest escrow creation
+```
+
+### Why This Matters
+
+Alkahest has escrows, arbiters, and obligations — but no **reputation primitive**. ReputationArbiter fills this gap:
+
+- **Trust before transact**: Gate high-value escrows behind proven track records
+- **Composable**: Use with `AllArbiter` to require reputation AND work delivery
+- **On-chain data**: Reads from AgentEscrowV4's live reputation (not off-chain oracles)
+- **Novel arbiter type**: Reputation-weighted validation — listed as a target in the Escrow Ecosystem Extensions track
+
+### Tests
+
+8 tests covering all threshold checks, helper functions, and encode/decode roundtrip:
+
+```bash
+forge test --match-contract ReputationArbiterTest -v
+```
+
 ## Deployed Contracts (Polygon Mainnet)
 
 | Contract | Address | TX |
@@ -133,8 +171,9 @@ cd frontend && npm install && npm run dev
 | `src/AgentEscrowV3.sol` | Partial arbitration + dynamic dispute window |
 | `src/AgentEscrowV2Fixed.sol` | All V2 bugs fixed, binary arbitration |
 | `src/AgentEscrowV2.sol` | Original with critical bug (reference only) |
+| `src/ReputationArbiter.sol` | Alkahest IArbiter — reputation-gated escrow release |
+| `src/IAlkahest.sol` | Minimal EAS Attestation struct for Alkahest compat |
 | `sdk/` | TypeScript SDK (v0.4.0) |
-| `frontend/` | React demo UI |
 
 ## Tests
 
@@ -148,6 +187,7 @@ forge test -v
 | `test/AgentEscrowV3.t.sol` | 17 + 256 fuzz | ✅ all pass |
 | `test/AgentEscrowV2Fixed.t.sol` | 15 | ✅ all pass |
 | `test/AgentEscrowV2.t.sol` | 32 | ✅ 31 pass, 1 intentional fail (proves critical bug) |
+| `test/ReputationArbiter.t.sol` | 8 | ✅ all pass |
 
 ## Security
 
